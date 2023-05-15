@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "transformer"
+version = "0.1.0"
+description = ""
+authors = ["andresaltena <106529530+andresaltena@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+ipykernel = "^6.23.0"
+torch = "^2.0.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
