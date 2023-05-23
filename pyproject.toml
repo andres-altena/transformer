@@ -9,6 +9,7 @@ readme = "README.md"
 python = "^3.9"
 ipykernel = "^6.23.0"
 torch = "^2.0.1"
+tqdm = "^4.65.0"
 
 
 [build-system]
