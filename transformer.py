@@ -1,5 +1,3 @@
-import datetime
-
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -9,10 +7,20 @@ from tqdm import tqdm
 # hyperparameters
 batch_size = 64  # how many independent sequences will we process in parallel?
 block_size = 256  # what is the maximum context length for predictions?
-max_iters = 5_000
+max_iters = 0
 eval_interval = 500
 learning_rate = 3e-4
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+# Check that MPS is available
+if not torch.backends.mps.is_available():
+    if not torch.backends.mps.is_built():
+        print("MPS not available because the current PyTorch install was not "
+              "built with MPS enabled.")
+    else:
+        print("MPS not available because the current MacOS version is not 12.3+ "
+              "and/or you do not have an MPS-enabled device on this machine.")
+device = "mps"
+torch.set_default_device(device)
 eval_iters = 200
 n_embd = 384
 n_head = 6
@@ -82,14 +90,14 @@ class AttentionHead(nn.Module):
         k = self.key(x)  # (B, T, C)
         q = self.query(x)  # (B, T, C)
         # Combine to get most attention weights
-        wei = q @ k.transpose(-2, -1) * C**-0.5
+        wei = q @ k.transpose(-2, -1) * k.shape[-1]**-0.5  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         # Mask and replace 0s with -inf
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))  # (B, T, T)
         # Apply softmax
-        wei = F.softmax(wei, dim=-1)
+        wei = F.softmax(wei, dim=-1)  # (B, T, T)
         wei = self.dropout(wei)
         v = self.value(x)
-        return wei @ v
+        return wei @ v  # (B, T, hs)
 
 
 class MultiHeadAttention(nn.Module):
@@ -138,7 +146,7 @@ class Block(nn.Module):
 
 
 # super simple bigram model
-class BigramLanguageModel(nn.Module):
+class Transformer(nn.Module):
 
     def __init__(self):
         super().__init__()
@@ -150,9 +158,16 @@ class BigramLanguageModel(nn.Module):
         self.ln_f = nn.LayerNorm(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
     def forward(self, idx, targets=None):
         # idx and targets are both (B,T) tensor of integers
-
         B, T = idx.shape
         tok_emb = self.token_embedding_table(idx)  # (B,T,C)
         pos_emb = self.position_embedding_table(torch.arange(T, device=device))
@@ -190,13 +205,13 @@ class BigramLanguageModel(nn.Module):
         return idx
 
 
-model = BigramLanguageModel()
+model = Transformer()
 m = model.to(device)
 
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 print("Starting training")
-current_timestamp = time.time()
+tic = time.time()
 
 for iter in tqdm(range(max_iters)):
 
@@ -218,4 +233,12 @@ for iter in tqdm(range(max_iters)):
 
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
+encoded = m.generate(context, max_new_tokens=500)[0].tolist()
+with open("encoded.txt", "w") as f:
+    f.write(str(encoded))
+    f.close()
+
+decoded = decode(encoded)
+with open("decoded.txt", "w") as f:
+    f.write(str(decoded))
+    f.close()
